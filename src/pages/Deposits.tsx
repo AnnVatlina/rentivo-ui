@@ -12,12 +12,24 @@ import { cn } from '@/lib/utils'
 type SortKey = 'title' | 'amount' | 'annual_rate' | 'close_date' | 'days_elapsed' | 'income_to_date'
 type SortDir = 'asc' | 'desc'
 
+const EXPIRING_SOON_DAYS = 30
+
 const today = new Date()
 today.setHours(0, 0, 0, 0)
 
-function isExpired(d: DepositOut): boolean {
-  if (!d.close_date) return false
-  return new Date(d.close_date) < today
+type DepositStatus = 'active' | 'expiring' | 'expired'
+
+function depositStatus(d: DepositOut): DepositStatus {
+  if (!d.close_date) return 'active'
+  const close = new Date(d.close_date)
+  if (close < today) return 'expired'
+  const daysLeft = Math.ceil((close.getTime() - today.getTime()) / 86_400_000)
+  if (daysLeft <= EXPIRING_SOON_DAYS) return 'expiring'
+  return 'active'
+}
+
+function daysUntil(dateStr: string): number {
+  return Math.ceil((new Date(dateStr).getTime() - today.getTime()) / 86_400_000)
 }
 
 function SortIcon({ col, active, dir }: { col: SortKey; active: SortKey; dir: SortDir }) {
@@ -52,8 +64,8 @@ export function Deposits() {
   })
 
   const sorted = sortDeposits(data, sortKey, sortDir)
-  const activeCount = data.filter(d => !isExpired(d)).length
-  const expiredCount = data.filter(isExpired).length
+  const counts = { active: 0, expiring: 0, expired: 0 }
+  data.forEach(d => counts[depositStatus(d)]++)
 
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -79,10 +91,13 @@ export function Deposits() {
         <div>
           <h2 className="text-2xl font-bold">Deposits</h2>
           {!isLoading && data.length > 0 && (
-            <p className="text-sm text-muted-foreground mt-0.5">
-              <span className="text-income font-medium">{activeCount} active</span>
-              {expiredCount > 0 && (
-                <span className="text-muted-foreground"> · {expiredCount} expired</span>
+            <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
+              <span className="text-income font-medium">{counts.active} active</span>
+              {counts.expiring > 0 && (
+                <span className="text-amber-600 font-medium">{counts.expiring} expiring soon</span>
+              )}
+              {counts.expired > 0 && (
+                <span className="text-muted-foreground">{counts.expired} expired</span>
               )}
             </p>
           )}
@@ -127,26 +142,29 @@ export function Deposits() {
                 </tr>
               ) : (
                 sorted.map(d => {
-                  const expired = isExpired(d)
+                  const status = depositStatus(d)
+                  const expired = status === 'expired'
+                  const expiring = status === 'expiring'
+
                   return (
                     <tr
                       key={d.id}
                       className={cn(
                         'border-t transition-colors',
-                        expired
-                          ? 'bg-muted/20 hover:bg-muted/30'
-                          : 'hover:bg-muted/20',
+                        expired  && 'bg-muted/20 hover:bg-muted/30',
+                        expiring && 'bg-amber-50/60 hover:bg-amber-50 dark:bg-amber-950/20 dark:hover:bg-amber-950/30',
+                        !expired && !expiring && 'hover:bg-muted/20',
                       )}
                     >
                       {/* Title + status dot */}
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
-                          <span
-                            className={cn(
-                              'h-2 w-2 rounded-full shrink-0',
-                              expired ? 'bg-muted-foreground/40' : 'bg-income',
-                            )}
-                          />
+                          <span className={cn(
+                            'h-2 w-2 rounded-full shrink-0',
+                            expired  ? 'bg-muted-foreground/40' :
+                            expiring ? 'bg-amber-500' :
+                                       'bg-income',
+                          )} />
                           <span className={cn('font-medium', expired && 'text-muted-foreground')}>
                             {d.title}
                           </span>
@@ -192,13 +210,18 @@ export function Deposits() {
                                 Expired
                               </Badge>
                             )}
+                            {expiring && (
+                              <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100">
+                                {daysUntil(d.close_date)}d left
+                              </Badge>
+                            )}
                           </div>
                         ) : (
                           <span className="text-xs text-muted-foreground">Open-ended</span>
                         )}
                       </td>
 
-                      {/* Days */}
+                      {/* Days elapsed */}
                       <td className={cn('px-4 py-3 font-mono', expired ? 'text-muted-foreground/60' : 'text-muted-foreground')}>
                         {d.days_elapsed}d
                       </td>
@@ -206,7 +229,9 @@ export function Deposits() {
                       {/* Accrued income */}
                       <td className={cn(
                         'px-4 py-3 font-mono font-semibold',
-                        expired ? 'text-muted-foreground' : 'text-income',
+                        expired  ? 'text-muted-foreground' :
+                        expiring ? 'text-amber-600' :
+                                   'text-income',
                       )}>
                         +{formatAmount(d.income_to_date, d.currency)}
                       </td>
