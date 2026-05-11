@@ -31,7 +31,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter basename={import.meta.env.BASE_URL}>
           <SettingsProvider>
             <Routes>
               {/* Public routes */}

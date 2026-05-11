@@ -4,6 +4,9 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [react()],
+  // VITE_BASE_PATH is set to /rentivo-ui/ in the GitHub Actions workflow.
+  // Locally it defaults to / so dev server works without changes.
+  base: process.env.VITE_BASE_PATH ?? '/',
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
