@@ -7,6 +7,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { ArrowLeft, Trash2 } from 'lucide-react'
 import { depositsApi } from '@/api/deposits'
+import type { DepositCreate, CompoundFrequency } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -94,7 +95,7 @@ export function DepositForm() {
   }, [existing, reset])
 
   const createMutation = useMutation({
-    mutationFn: depositsApi.create,
+    mutationFn: (payload: DepositCreate) => depositsApi.create(payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] })
       toast.success('Deposit created')
@@ -104,7 +105,7 @@ export function DepositForm() {
   })
 
   const updateMutation = useMutation({
-    mutationFn: (data: FormData) => depositsApi.update(id!, data),
+    mutationFn: (payload: DepositCreate) => depositsApi.update(id!, payload),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['deposits'] })
       toast.success('Deposit updated')
@@ -124,12 +125,19 @@ export function DepositForm() {
   })
 
   const onSubmit = (data: FormData) => {
-    const payload = {
-      ...data,
-      bank_name: data.bank_name || null,
-      close_date: data.close_date || null,
+    const payload: DepositCreate = {
+      title: data.title,
+      bank_name: data.bank_name || undefined,
+      amount: data.amount,
+      currency: data.currency,
+      open_date: data.open_date,
+      close_date: data.close_date || undefined,
+      annual_rate: data.annual_rate,
+      interest_type: data.interest_type,
       compound_frequency:
-        data.interest_type === 'compound' ? (data.compound_frequency as 'daily' | 'monthly' | 'quarterly' | 'annually') || null : null,
+        data.interest_type === 'compound'
+          ? (data.compound_frequency as CompoundFrequency) || undefined
+          : undefined,
     }
     if (isEdit) {
       updateMutation.mutate(payload)
