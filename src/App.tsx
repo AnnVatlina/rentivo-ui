@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from 'sonner'
 import { AuthProvider } from '@/contexts/AuthContext'
 import { SettingsProvider } from '@/contexts/SettingsContext'
+import { ThemeProvider } from '@/contexts/ThemeContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import { Layout } from '@/components/Layout'
 import { Login } from '@/pages/Login'
@@ -27,6 +28,7 @@ const queryClient = new QueryClient({
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
       <AuthProvider>
         <BrowserRouter>
           <SettingsProvider>
@@ -57,6 +59,7 @@ export default function App() {
           </SettingsProvider>
         </BrowserRouter>
       </AuthProvider>
+      </ThemeProvider>
       <Toaster richColors position="top-right" />
     </QueryClientProvider>
   )

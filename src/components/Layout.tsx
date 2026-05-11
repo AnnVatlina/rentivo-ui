@@ -74,7 +74,7 @@ export function Layout() {
   return (
     <div className="flex min-h-screen">
       {/* Sidebar */}
-      <aside className="w-56 shrink-0 bg-indigo-700 text-white flex flex-col">
+      <aside className="w-56 shrink-0 sidebar-bg flex flex-col">
         <div className="px-5 py-5">
           <h1 className="text-xl font-bold tracking-tight">Rentivo</h1>
         </div>
@@ -91,8 +91,8 @@ export function Layout() {
                   cn(
                     'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
                     isActive
-                      ? 'bg-white/20 text-white'
-                      : 'text-indigo-100 hover:bg-white/10 hover:text-white',
+                      ? 'bg-white/20'
+                      : 'opacity-80 hover:bg-white/10 hover:opacity-100',
                   )
                 }
               >
@@ -107,7 +107,7 @@ export function Layout() {
             variant="ghost"
             size="sm"
             onClick={logout}
-            className="w-full justify-start gap-3 text-indigo-100 hover:bg-white/10 hover:text-white"
+            className="w-full justify-start gap-3 opacity-70 hover:bg-white/10 hover:opacity-100"
           >
             <LogOut className="h-4 w-4" />
             Log out
