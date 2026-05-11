@@ -10,6 +10,7 @@ import { Login } from '@/pages/Login'
 import { Register } from '@/pages/Register'
 import { Dashboard } from '@/pages/Dashboard'
 import { Deposits } from '@/pages/Deposits'
+import { DepositForm } from '@/pages/DepositForm'
 import { Subscriptions } from '@/pages/Subscriptions'
 import { Properties } from '@/pages/Properties'
 import { Analytics } from '@/pages/Analytics'
@@ -46,7 +47,9 @@ export default function App() {
                 }
               >
                 <Route index element={<Dashboard />} />
-                <Route path="deposits/*" element={<Deposits />} />
+                <Route path="deposits" element={<Deposits />} />
+                <Route path="deposits/new" element={<DepositForm />} />
+                <Route path="deposits/:id" element={<DepositForm />} />
                 <Route path="subscriptions/*" element={<Subscriptions />} />
                 <Route path="properties/*" element={<Properties />} />
                 <Route path="analytics" element={<Analytics />} />
