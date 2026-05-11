@@ -32,17 +32,32 @@ function yTickFormatter(value: number): string {
   return String(value)
 }
 
-function CustomTooltip({ active, payload, label, currency }: TooltipProps<number, string> & { currency: string }) {
+interface ChartRow {
+  name: string
+  income: number
+  expenses: number
+  projected: boolean
+}
+
+function CustomTooltip({
+  active, payload, label, currency,
+}: TooltipProps<number, string> & { currency: string }) {
   if (!active || !payload?.length) return null
-  const d = payload[0]
-  if (d.value == null) return null
+  const projected = (payload[0]?.payload as ChartRow).projected
   return (
-    <div className="bg-card border rounded-lg shadow-md px-3 py-2 text-sm">
-      <p className="font-semibold mb-1">{label}</p>
-      <p className="text-income font-mono">{formatAmount(d.value, currency)}</p>
-      {(payload[0].payload as { projected: boolean }).projected && (
-        <p className="text-xs text-muted-foreground mt-0.5">Projected</p>
-      )}
+    <div className="bg-card border rounded-lg shadow-md px-3 py-2.5 text-sm min-w-[140px]">
+      <p className="font-semibold mb-2">{label}</p>
+      {payload.map(p => (
+        p.value != null && p.value > 0 ? (
+          <div key={p.dataKey} className="flex justify-between gap-4">
+            <span className="text-muted-foreground">{p.dataKey === 'income' ? 'Income' : 'Expenses'}</span>
+            <span className={cn('font-mono font-medium', p.dataKey === 'income' ? 'text-income' : 'text-expense')}>
+              {formatAmount(p.value, currency)}
+            </span>
+          </div>
+        ) : null
+      ))}
+      {projected && <p className="text-xs text-muted-foreground mt-1.5">Projected</p>}
     </div>
   )
 }
@@ -59,34 +74,40 @@ export function Analytics() {
     if (settings?.default_currency) setCurrency(settings.default_currency)
   }, [settings?.default_currency])
 
-  const primaryColor = useMemo(() => cssVar('--primary'), [theme])
-  const mutedColor = useMemo(() => cssVar('--muted-foreground'), [theme])
-  const gridColor = useMemo(() => cssVar('--border'), [theme])
+  const incomeColor  = useMemo(() => cssVar('--income'),  [theme])
+  const expenseColor = useMemo(() => cssVar('--expense'), [theme])
+  const mutedColor   = useMemo(() => cssVar('--muted-foreground'), [theme])
+  const gridColor    = useMemo(() => cssVar('--border'),  [theme])
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['analytics', year, currency],
     queryFn: () => analyticsApi.get(year, currency),
   })
 
-  const chartData = useMemo(() =>
+  const chartData = useMemo<ChartRow[]>(() =>
     (data?.months ?? []).map(m => ({
-      name: MONTHS[m.month - 1],
-      income: m.deposit_income !== null ? Math.round(parseFloat(m.deposit_income) * 100) / 100 : 0,
+      name:     MONTHS[m.month - 1],
+      income:   m.deposit_income      !== null ? Math.round(parseFloat(m.deposit_income)      * 100) / 100 : 0,
+      expenses: m.subscription_expenses !== null ? Math.round(parseFloat(m.subscription_expenses) * 100) / 100 : 0,
       projected: m.is_projected,
     })),
-    [data]
+    [data],
   )
 
-  const moduleDisabled = data?.months.every(m => m.deposit_income === null) ?? false
-  const hasIncome = chartData.some(d => d.income > 0)
+  const depositsOff     = data?.months.every(m => m.deposit_income       === null) ?? false
+  const subscriptionsOff = data?.months.every(m => m.subscription_expenses === null) ?? false
+  const hasData = chartData.some(d => d.income > 0 || d.expenses > 0)
 
-  const earnedActual = chartData
-    .filter(d => !d.projected)
-    .reduce((s, d) => s + d.income, 0)
-  const earnedProjected = chartData
-    .filter(d => d.projected)
-    .reduce((s, d) => s + d.income, 0)
-  const bestMonth = [...chartData].sort((a, b) => b.income - a.income)[0]
+  // Summary numbers — actual months only
+  const actual = chartData.filter(d => !d.projected)
+  const totalIncome   = actual.reduce((s, d) => s + d.income,   0)
+  const totalExpenses = actual.reduce((s, d) => s + d.expenses, 0)
+  const totalNet      = totalIncome - totalExpenses
+
+  // Projected months
+  const projected = chartData.filter(d => d.projected)
+  const projIncome   = projected.reduce((s, d) => s + d.income,   0)
+  const projExpenses = projected.reduce((s, d) => s + d.expenses, 0)
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
 
@@ -96,7 +117,7 @@ export function Analytics() {
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold">Analytics</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">Deposit income by month</p>
+          <p className="text-sm text-muted-foreground mt-0.5">Income vs expenses by month</p>
         </div>
         <div className="flex gap-2">
           <select value={year} onChange={e => setYear(+e.target.value)} className={selectCls}>
@@ -110,18 +131,26 @@ export function Analytics() {
         </div>
       </div>
 
-      {/* Chart card */}
+      {/* Chart */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center justify-between">
-            <span>Deposit income · {year} · {currency}</span>
+          <CardTitle className="text-base flex items-center justify-between flex-wrap gap-3">
+            <span>{year} · {currency}</span>
             <div className="flex items-center gap-4 text-xs font-normal text-muted-foreground">
+              {!depositsOff && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: incomeColor }} />
+                  Deposit income
+                </span>
+              )}
+              {!subscriptionsOff && (
+                <span className="flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm" style={{ background: expenseColor }} />
+                  Sub expenses
+                </span>
+              )}
               <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-sm inline-block" style={{ background: primaryColor }} />
-                Actual
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="h-2.5 w-2.5 rounded-sm inline-block" style={{ background: primaryColor, opacity: 0.35 }} />
+                <span className="h-2.5 w-2.5 rounded-sm border border-border" style={{ background: 'transparent', opacity: 0.4 }} />
                 Projected
               </span>
             </div>
@@ -129,29 +158,26 @@ export function Analytics() {
         </CardHeader>
         <CardContent>
           {isLoading && (
-            <div className="h-64 flex items-center justify-center">
+            <div className="h-72 flex items-center justify-center">
               <p className="text-sm text-muted-foreground animate-pulse">Loading…</p>
             </div>
           )}
           {error && (
-            <div className="h-64 flex items-center justify-center">
+            <div className="h-72 flex items-center justify-center">
               <p className="text-sm text-destructive">Failed to load analytics</p>
             </div>
           )}
-          {!isLoading && !error && moduleDisabled && (
-            <div className="h-64 flex items-center justify-center flex-col gap-2">
-              <p className="text-sm text-muted-foreground">Deposits module is disabled</p>
-              <p className="text-xs text-muted-foreground">Enable it in Settings → Modules</p>
+          {!isLoading && !error && !hasData && (
+            <div className="h-72 flex items-center justify-center flex-col gap-1">
+              <p className="text-sm text-muted-foreground">No data for {year} · {currency}</p>
+              {(depositsOff || subscriptionsOff) && (
+                <p className="text-xs text-muted-foreground">Some modules are disabled in Settings</p>
+              )}
             </div>
           )}
-          {!isLoading && !error && !moduleDisabled && !hasIncome && (
-            <div className="h-64 flex items-center justify-center">
-              <p className="text-sm text-muted-foreground">No deposit income in {year} · {currency}</p>
-            </div>
-          )}
-          {!isLoading && !error && !moduleDisabled && hasIncome && (
+          {!isLoading && !error && hasData && (
             <ResponsiveContainer width="100%" height={300}>
-              <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }} barSize={28}>
+              <BarChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }} barCategoryGap="25%" barGap={3}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
                 <XAxis
                   dataKey="name"
@@ -168,17 +194,26 @@ export function Analytics() {
                 />
                 <Tooltip
                   content={<CustomTooltip currency={currency} />}
-                  cursor={{ fill: 'hsl(var(--muted)/0.5)' }}
+                  cursor={{ fill: `${gridColor}`, opacity: 0.4 }}
                 />
-                <Bar dataKey="income" radius={[4, 4, 0, 0]}>
-                  {chartData.map((entry, i) => (
-                    <Cell
-                      key={i}
-                      fill={primaryColor}
-                      fillOpacity={entry.projected ? 0.35 : 1}
-                    />
-                  ))}
-                </Bar>
+
+                {/* Deposit income bars */}
+                {!depositsOff && (
+                  <Bar dataKey="income" radius={[3, 3, 0, 0]} maxBarSize={22}>
+                    {chartData.map((entry, i) => (
+                      <Cell key={i} fill={incomeColor} fillOpacity={entry.projected ? 0.3 : 1} />
+                    ))}
+                  </Bar>
+                )}
+
+                {/* Subscription expense bars */}
+                {!subscriptionsOff && (
+                  <Bar dataKey="expenses" radius={[3, 3, 0, 0]} maxBarSize={22}>
+                    {chartData.map((entry, i) => (
+                      <Cell key={i} fill={expenseColor} fillOpacity={entry.projected ? 0.3 : 1} />
+                    ))}
+                  </Bar>
+                )}
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -186,35 +221,56 @@ export function Analytics() {
       </Card>
 
       {/* Summary cards */}
-      {!isLoading && hasIncome && (
-        <div className="grid grid-cols-3 gap-4">
+      {!isLoading && !error && hasData && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <Card>
             <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Earned so far</p>
-              <p className="text-2xl font-bold font-mono mt-1 text-income">
-                {formatAmount(earnedActual, currency)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">actual months only</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Projected rest</p>
-              <p className={cn('text-2xl font-bold font-mono mt-1', earnedProjected > 0 ? 'text-foreground' : 'text-muted-foreground')}>
-                {formatAmount(earnedProjected, currency)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">estimated future income</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Best month</p>
-              <p className="text-2xl font-bold font-mono mt-1">
-                {bestMonth && bestMonth.income > 0 ? formatAmount(bestMonth.income, currency) : '—'}
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Income earned</p>
+              <p className="text-xl font-bold font-mono mt-1 text-income">
+                +{formatAmount(totalIncome, currency)}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {bestMonth && bestMonth.income > 0 ? bestMonth.name : 'no data'}
+                +{formatAmount(projIncome, currency)} projected
               </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-5">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Subs spent</p>
+              <p className="text-xl font-bold font-mono mt-1 text-expense">
+                -{formatAmount(totalExpenses, currency)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                -{formatAmount(projExpenses, currency)} projected
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-5">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Net (actual)</p>
+              <p className={cn('text-xl font-bold font-mono mt-1', totalNet >= 0 ? 'text-income' : 'text-expense')}>
+                {totalNet >= 0 ? '+' : ''}{formatAmount(totalNet, currency)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">income − expenses</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent className="pt-5">
+              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Net (full year)</p>
+              {(() => {
+                const yearNet = totalIncome + projIncome - totalExpenses - projExpenses
+                return (
+                  <>
+                    <p className={cn('text-xl font-bold font-mono mt-1', yearNet >= 0 ? 'text-income' : 'text-expense')}>
+                      {yearNet >= 0 ? '+' : ''}{formatAmount(yearNet, currency)}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">incl. projected</p>
+                  </>
+                )
+              })()}
             </CardContent>
           </Card>
         </div>
