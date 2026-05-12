@@ -31,6 +31,15 @@ function applyFilter(items: SubscriptionOut[], filter: Filter): SubscriptionOut[
   }
 }
 
+const now = new Date()
+const thisYear  = now.getFullYear()
+const thisMonth = now.getMonth()
+
+function isPaymentThisMonth(dateStr: string): boolean {
+  const d = new Date(dateStr)
+  return d.getFullYear() === thisYear && d.getMonth() === thisMonth
+}
+
 function NextPayment({ sub }: { sub: SubscriptionOut }) {
   if (!sub.is_active || sub.billing_cycle === 'one_time') {
     return <span className="text-muted-foreground text-xs">—</span>
@@ -39,16 +48,21 @@ function NextPayment({ sub }: { sub: SubscriptionOut }) {
     return <span className="text-muted-foreground text-xs">—</span>
   }
   const days = Math.ceil(
-    (new Date(sub.next_payment_date).getTime() - Date.now()) / 86_400_000,
+    (new Date(sub.next_payment_date).getTime() - now.getTime()) / 86_400_000,
   )
+  const thisMonth = isPaymentThisMonth(sub.next_payment_date)
   return (
     <div className="flex items-center gap-1.5">
       <span>{formatDate(sub.next_payment_date)}</span>
-      {days >= 0 && days <= 7 && (
+      {days >= 0 && days <= 7 ? (
         <Badge className="text-[10px] px-1.5 py-0 bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-100">
           {days === 0 ? 'today' : `${days}d`}
         </Badge>
-      )}
+      ) : thisMonth && days >= 0 ? (
+        <Badge className="text-[10px] px-1.5 py-0 bg-blue-100 text-blue-700 border-blue-200 hover:bg-blue-100 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800">
+          this month
+        </Badge>
+      ) : null}
     </div>
   )
 }
@@ -77,6 +91,11 @@ export function Subscriptions() {
     .filter(s => s.is_active)
     .reduce((sum, s) => sum + parseFloat(s.monthly_cost), 0)
 
+  const dueThisMonth = data.filter(
+    s => s.is_active && s.billing_cycle !== 'one_time' &&
+         s.next_payment_date && isPaymentThisMonth(s.next_payment_date),
+  )
+
   const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
     <th className={cn(
       'px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide',
@@ -93,11 +112,17 @@ export function Subscriptions() {
         <div>
           <h2 className="text-2xl font-bold">Subscriptions</h2>
           {!isLoading && data.length > 0 && (
-            <p className="text-sm text-muted-foreground mt-0.5">
-              {counts.active} active ·{' '}
-              <span className="text-expense font-medium">
-                {formatAmount(totalMonthly, data.find(s => s.is_active)?.currency ?? 'USD')} / mo
+            <p className="text-sm text-muted-foreground mt-0.5 flex items-center gap-2">
+              <span>{counts.active} active ·{' '}
+                <span className="text-expense font-medium">
+                  {formatAmount(totalMonthly, data.find(s => s.is_active)?.currency ?? 'USD')} / mo
+                </span>
               </span>
+              {dueThisMonth.length > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 border border-blue-200 dark:bg-blue-950/40 dark:text-blue-400 dark:border-blue-800">
+                  {dueThisMonth.length} payment{dueThisMonth.length > 1 ? 's' : ''} this month
+                </span>
+              )}
             </p>
           )}
         </div>
