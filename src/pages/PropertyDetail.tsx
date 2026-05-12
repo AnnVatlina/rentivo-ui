@@ -7,6 +7,7 @@ import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { propertiesApi } from '@/api/properties'
+import { useExchangeRates, convertCurrency } from '@/api/exchangeRates'
 import { useSettings } from '@/contexts/SettingsContext'
 import type {
   PropertyTransactionOut,
@@ -170,11 +171,13 @@ function TransactionForm({
 function TxRow({
   tx,
   baseCurrency,
+  rates,
   onEdit,
   onDelete,
 }: {
   tx: PropertyTransactionOut
   baseCurrency: string
+  rates: Record<string, number> | undefined
   onEdit: (tx: PropertyTransactionOut) => void
   onDelete: (id: string) => void
 }) {
@@ -182,7 +185,10 @@ function TxRow({
   const dateStr = tx.billing_cycle === 'one_time'
     ? formatDate(tx.transaction_date)
     : tx.start_date ? `from ${formatDate(tx.start_date)}` : '—'
-  const inBase = tx.currency === baseCurrency
+
+  const converted = rates
+    ? convertCurrency(parseFloat(tx.amount), tx.currency, baseCurrency, rates)
+    : tx.currency === baseCurrency ? parseFloat(tx.amount) : null
 
   return (
     <tr className="border-t hover:bg-muted/20 transition-colors">
@@ -198,12 +204,19 @@ function TxRow({
           {isIncome ? '+' : '−'}{formatAmount(tx.amount, tx.currency)}
         </span>
       </td>
-      <td className="px-4 py-3 text-right font-mono text-muted-foreground">
-        {inBase ? (
-          <span className={isIncome ? 'text-income/70' : 'text-expense/70'}>
-            {isIncome ? '+' : '−'}{formatAmount(tx.amount, baseCurrency)}
+      <td className="px-4 py-3 text-right font-mono">
+        {converted != null ? (
+          <span className={cn(
+            'font-medium',
+            tx.currency === baseCurrency
+              ? isIncome ? 'text-income/60' : 'text-expense/60'
+              : isIncome ? 'text-income' : 'text-expense',
+          )}>
+            {isIncome ? '+' : '−'}{formatAmount(converted, baseCurrency)}
           </span>
-        ) : '—'}
+        ) : (
+          <span className="text-muted-foreground/40 text-xs">{rates ? '?' : '…'}</span>
+        )}
       </td>
       <td className="px-4 py-3">
         <Badge variant="secondary" className="text-[10px] px-1.5 py-0 font-normal">
@@ -249,6 +262,8 @@ export function PropertyDetail() {
 
   const { settings } = useSettings()
   const defaultCurrency = settings?.default_currency ?? 'USD'
+
+  const { data: rates, isLoading: ratesLoading } = useExchangeRates(defaultCurrency)
 
   const { data: property, isLoading: loadingProp } = useQuery({
     queryKey: ['property', id],
@@ -363,15 +378,23 @@ export function PropertyDetail() {
   const paged = paginate(filtered, page, PER_PAGE)
 
   // Totals for ALL filtered rows (not just current page)
-  function sumFiltered(type: 'expense' | 'income', cur?: string) {
+  function sumFiltered(type: 'expense' | 'income') {
     return filtered
-      .filter(t => t.type === type && (cur ? t.currency === cur : true))
+      .filter(t => t.type === type)
       .reduce((s, t) => s + parseFloat(t.amount), 0)
+  }
+  function sumFilteredBase(type: 'expense' | 'income') {
+    return filtered
+      .filter(t => t.type === type)
+      .reduce((s, t) => {
+        const c = convertCurrency(parseFloat(t.amount), t.currency, defaultCurrency, rates ?? {})
+        return c != null ? s + c : s
+      }, 0)
   }
   const totalExpense     = sumFiltered('expense')
   const totalIncome      = sumFiltered('income')
-  const baseExpense      = sumFiltered('expense', defaultCurrency)
-  const baseIncome       = sumFiltered('income',  defaultCurrency)
+  const baseExpense      = sumFilteredBase('expense')
+  const baseIncome       = sumFilteredBase('income')
   const hasMultiCurrency = filtered.some(t => t.currency !== defaultCurrency)
 
   // Category counts for filter chips
@@ -584,6 +607,7 @@ export function PropertyDetail() {
                   <Th col="amount" right>Amount</Th>
                   <th className="px-4 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap">
                     {defaultCurrency}
+                    {ratesLoading && <span className="ml-1 opacity-50 animate-pulse">…</span>}
                   </th>
                   <Th col="billing_cycle">Cycle</Th>
                   <Th col="date">Date</Th>
@@ -596,6 +620,7 @@ export function PropertyDetail() {
                     key={tx.id}
                     tx={tx}
                     baseCurrency={defaultCurrency}
+                    rates={rates}
                     onEdit={t => { setEditingTx(t); setShowAddForm(false) }}
                     onDelete={deleteTx}
                   />
@@ -614,7 +639,9 @@ export function PropertyDetail() {
                       −{formatAmount(totalExpense, currency)}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-expense/70">
-                      {hasMultiCurrency ? `−${formatAmount(baseExpense, defaultCurrency)}` : ''}
+                      {hasMultiCurrency || ratesLoading
+                        ? ratesLoading ? <span className="animate-pulse opacity-40">…</span> : `−${formatAmount(baseExpense, defaultCurrency)}`
+                        : ''}
                     </td>
                     <td colSpan={3} />
                   </tr>
@@ -631,7 +658,9 @@ export function PropertyDetail() {
                       +{formatAmount(totalIncome, currency)}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-income/70">
-                      {hasMultiCurrency ? `+${formatAmount(baseIncome, defaultCurrency)}` : ''}
+                      {hasMultiCurrency || ratesLoading
+                        ? ratesLoading ? <span className="animate-pulse opacity-40">…</span> : `+${formatAmount(baseIncome, defaultCurrency)}`
+                        : ''}
                     </td>
                     <td colSpan={3} />
                   </tr>
