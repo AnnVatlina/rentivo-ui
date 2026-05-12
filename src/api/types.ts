@@ -76,7 +76,7 @@ export type DepositUpdate = Partial<DepositCreate>
 
 // ---- Subscriptions ----
 
-export type BillingCycle = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'one_time'
+export type BillingCycle = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'biennial' | 'one_time'
 
 export interface SubscriptionOut {
   id: string
