@@ -14,6 +14,8 @@ import { DepositForm } from '@/pages/DepositForm'
 import { Subscriptions } from '@/pages/Subscriptions'
 import { SubscriptionForm } from '@/pages/SubscriptionForm'
 import { Properties } from '@/pages/Properties'
+import { PropertyForm } from '@/pages/PropertyForm'
+import { PropertyDetail } from '@/pages/PropertyDetail'
 import { Analytics } from '@/pages/Analytics'
 import { ImportExport } from '@/pages/ImportExport'
 import { SettingsPage } from '@/pages/SettingsPage'
@@ -54,7 +56,9 @@ export default function App() {
                 <Route path="subscriptions" element={<Subscriptions />} />
                 <Route path="subscriptions/new" element={<SubscriptionForm />} />
                 <Route path="subscriptions/:id" element={<SubscriptionForm />} />
-                <Route path="properties/*" element={<Properties />} />
+                <Route path="properties" element={<Properties />} />
+                <Route path="properties/new" element={<PropertyForm />} />
+                <Route path="properties/:id" element={<PropertyDetail />} />
                 <Route path="analytics" element={<Analytics />} />
                 <Route path="import-export" element={<ImportExport />} />
                 <Route path="settings" element={<SettingsPage />} />
