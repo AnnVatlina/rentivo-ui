@@ -14,6 +14,7 @@ import {
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { analyticsApi } from '@/api/analytics'
 import { propertiesApi } from '@/api/properties'
+import { useExchangeRates, convertCurrency } from '@/api/exchangeRates'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -103,20 +104,29 @@ export function Analytics() {
     enabled: !!effectivePropId,
   })
 
+  const propNativeCurrency = propAnalytics?.currency ?? ''
+  const needsConversion = !!propNativeCurrency && propNativeCurrency !== currency
+
+  // Fetch rates only when currencies differ; 24h cache from useExchangeRates
+  const { data: propRates, isLoading: ratesLoading } = useExchangeRates(currency)
+
   const propChartData = useMemo(() =>
     MONTHS.map((name, i) => {
       const m = propAnalytics?.months.find(m => m.month === i + 1)
+      const conv = (v: number) => {
+        if (!needsConversion || !propRates) return v
+        return convertCurrency(v, propNativeCurrency, currency, propRates) ?? v
+      }
       return {
         name,
-        income:   m ? Math.round(parseFloat(m.income)   * 100) / 100 : 0,
-        expenses: m ? Math.round(parseFloat(m.expenses) * 100) / 100 : 0,
+        income:    m ? Math.round(conv(parseFloat(m.income))   * 100) / 100 : 0,
+        expenses:  m ? Math.round(conv(parseFloat(m.expenses)) * 100) / 100 : 0,
         projected: m?.is_projected ?? false,
       }
     }),
-    [propAnalytics],
+    [propAnalytics, needsConversion, propRates, propNativeCurrency, currency],
   )
 
-  const propCurrency = propAnalytics?.currency ?? ''
   const propHasData = propChartData.some(d => d.income > 0 || d.expenses > 0)
   const propActual = propChartData.filter(d => !d.projected)
   const propTotalExpenses = propActual.reduce((s, d) => s + d.expenses, 0)
@@ -336,7 +346,14 @@ export function Analytics() {
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-base flex items-center justify-between flex-wrap gap-3">
-              <span>Property expenses &amp; income · {year}{propCurrency ? ` · ${propCurrency}` : ''}</span>
+              <span>
+                Property expenses &amp; income · {year} · {currency}
+                {needsConversion && propNativeCurrency && (
+                  <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    (converted from {propNativeCurrency}{ratesLoading ? ' …' : ''})
+                  </span>
+                )}
+              </span>
               <div className="flex items-center gap-3">
                 {/* Property selector */}
                 <select
@@ -384,7 +401,7 @@ export function Analytics() {
                     <XAxis dataKey="name" tick={{ fontSize: 12, fill: mutedColor }} axisLine={false} tickLine={false} />
                     <YAxis tickFormatter={yTickFormatter} tick={{ fontSize: 12, fill: mutedColor }} axisLine={false} tickLine={false} width={48} />
                     <Tooltip
-                      content={<CustomTooltip currency={propCurrency} />}
+                      content={<CustomTooltip currency={currency} />}
                       cursor={{ fill: gridColor, opacity: 0.4 }}
                     />
                     <Bar dataKey="expenses" radius={[3, 3, 0, 0]} maxBarSize={22}>
@@ -405,13 +422,13 @@ export function Analytics() {
                   {propTotalExpenses > 0 && (
                     <span>
                       <span className="text-muted-foreground text-xs uppercase tracking-wide font-semibold">Expenses </span>
-                      <span className="font-mono font-semibold text-expense">−{formatAmount(propTotalExpenses, propCurrency)}</span>
+                      <span className="font-mono font-semibold text-expense">−{formatAmount(propTotalExpenses, currency)}</span>
                     </span>
                   )}
                   {propTotalIncome > 0 && (
                     <span>
                       <span className="text-muted-foreground text-xs uppercase tracking-wide font-semibold">Income </span>
-                      <span className="font-mono font-semibold text-income">+{formatAmount(propTotalIncome, propCurrency)}</span>
+                      <span className="font-mono font-semibold text-income">+{formatAmount(propTotalIncome, currency)}</span>
                     </span>
                   )}
                   {(propTotalExpenses > 0 || propTotalIncome > 0) && (
@@ -421,7 +438,7 @@ export function Analytics() {
                         const net = propTotalIncome - propTotalExpenses
                         return (
                           <span className={cn('font-mono font-semibold', net >= 0 ? 'text-income' : 'text-expense')}>
-                            {net >= 0 ? '+' : ''}{formatAmount(net, propCurrency)}
+                            {net >= 0 ? '+' : ''}{formatAmount(net, currency)}
                           </span>
                         )
                       })()}
