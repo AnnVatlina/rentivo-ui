@@ -338,13 +338,16 @@ export function PropertyDetail() {
   const currency = property.currency
   const summary = property.summary
 
-  // Totals
+  // Totals — convert all transactions to defaultCurrency via exchange rates
+  const convertAmount = (amount: number, from: string) =>
+    rates ? (convertCurrency(amount, from, defaultCurrency, rates) ?? amount) : amount
+
   const expenseTotal = transactions
-    .filter(t => t.type === 'expense' && t.currency === currency)
-    .reduce((s, t) => s + parseFloat(t.amount), 0)
+    .filter(t => t.type === 'expense')
+    .reduce((s, t) => s + convertAmount(parseFloat(t.amount), t.currency), 0)
   const incomeTotal = transactions
-    .filter(t => t.type === 'income' && t.currency === currency)
-    .reduce((s, t) => s + parseFloat(t.amount), 0)
+    .filter(t => t.type === 'income')
+    .reduce((s, t) => s + convertAmount(parseFloat(t.amount), t.currency), 0)
 
   // Sort
   const sorted = [...transactions].sort((a, b) => {
@@ -456,9 +459,11 @@ export function PropertyDetail() {
         </Card>
         <Card>
           <CardContent className="pt-5">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Expenses</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
+              Expenses{ratesLoading && <span className="ml-1 animate-pulse opacity-40">…</span>}
+            </p>
             <p className="text-xl font-bold font-mono mt-1 text-expense">
-              −{formatAmount(expenseTotal, currency)}
+              −{formatAmount(expenseTotal, defaultCurrency)}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {transactions.filter(t => t.type === 'expense').length} transactions
@@ -467,9 +472,11 @@ export function PropertyDetail() {
         </Card>
         <Card>
           <CardContent className="pt-5">
-            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Income received</p>
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
+              Income received{ratesLoading && <span className="ml-1 animate-pulse opacity-40">…</span>}
+            </p>
             <p className="text-xl font-bold font-mono mt-1 text-income">
-              +{formatAmount(incomeTotal, currency)}
+              +{formatAmount(incomeTotal, defaultCurrency)}
             </p>
             <p className="text-xs text-muted-foreground mt-0.5">
               {transactions.filter(t => t.type === 'income').length} transactions
