@@ -88,6 +88,15 @@ export function Analytics() {
     queryFn: () => analyticsApi.get(year, currency),
   })
 
+  // Exchange rates for converting native deposit/subscription currency → selected
+  const { data: rates } = useExchangeRates(currency)
+  const depNative  = data?.deposit_currency      ?? null
+  const subNative  = data?.subscription_currency ?? null
+  const conv = (amount: number, from: string | null) => {
+    if (!from || from === currency || !rates) return amount
+    return convertCurrency(amount, from, currency, rates) ?? amount
+  }
+
   // Properties list for property chart
   const { data: properties = [] } = useQuery({
     queryKey: ['properties'],
@@ -134,12 +143,12 @@ export function Analytics() {
 
   const chartData = useMemo<ChartRow[]>(() =>
     (data?.months ?? []).map(m => ({
-      name:     MONTHS[m.month - 1],
-      income:   m.deposit_income      !== null ? Math.round(parseFloat(m.deposit_income)      * 100) / 100 : 0,
-      expenses: m.subscription_expenses !== null ? Math.round(parseFloat(m.subscription_expenses) * 100) / 100 : 0,
+      name:      MONTHS[m.month - 1],
+      income:    m.deposit_income       !== null ? Math.round(conv(parseFloat(m.deposit_income),       depNative) * 100) / 100 : 0,
+      expenses:  m.subscription_expenses !== null ? Math.round(conv(parseFloat(m.subscription_expenses), subNative) * 100) / 100 : 0,
       projected: m.is_projected,
     })),
-    [data],
+    [data, rates, depNative, subNative],  // eslint-disable-line react-hooks/exhaustive-deps
   )
 
   const depositsOff     = data?.months.every(m => m.deposit_income       === null) ?? false

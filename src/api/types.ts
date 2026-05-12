@@ -216,6 +216,8 @@ export interface AnalyticsMonth {
 export interface Analytics {
   year: number
   currency: string
+  deposit_currency: string | null
+  subscription_currency: string | null
   months: AnalyticsMonth[]
 }
 
