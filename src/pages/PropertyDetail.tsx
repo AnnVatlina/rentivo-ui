@@ -377,13 +377,16 @@ export function PropertyDetail() {
 
   const paged = paginate(filtered, page, PER_PAGE)
 
-  // Totals for ALL filtered rows (not just current page)
-  function sumFiltered(type: 'expense' | 'income') {
+  // Totals for ALL filtered rows (not just current page), grouped by currency
+  function groupByCurrency(type: 'expense' | 'income'): Record<string, number> {
     return filtered
       .filter(t => t.type === type)
-      .reduce((s, t) => s + parseFloat(t.amount), 0)
+      .reduce((acc, t) => {
+        acc[t.currency] = (acc[t.currency] ?? 0) + parseFloat(t.amount)
+        return acc
+      }, {} as Record<string, number>)
   }
-  function sumFilteredBase(type: 'expense' | 'income') {
+  function sumConvertedBase(type: 'expense' | 'income'): number {
     return filtered
       .filter(t => t.type === type)
       .reduce((s, t) => {
@@ -391,11 +394,12 @@ export function PropertyDetail() {
         return c != null ? s + c : s
       }, 0)
   }
-  const totalExpense     = sumFiltered('expense')
-  const totalIncome      = sumFiltered('income')
-  const baseExpense      = sumFilteredBase('expense')
-  const baseIncome       = sumFilteredBase('income')
-  const hasMultiCurrency = filtered.some(t => t.currency !== defaultCurrency)
+  const expenseByCur = groupByCurrency('expense')
+  const incomeByCur  = groupByCurrency('income')
+  const baseExpense  = sumConvertedBase('expense')
+  const baseIncome   = sumConvertedBase('income')
+  const hasExpenses  = Object.keys(expenseByCur).length > 0
+  const hasIncomes   = Object.keys(incomeByCur).length > 0
 
   // Category counts for filter chips
   const catCounts = CATEGORIES.reduce((acc, c) => {
@@ -627,7 +631,7 @@ export function PropertyDetail() {
                 ))}
               </tbody>
               <tfoot className="border-t-2 bg-muted/20">
-                {(typeFilter !== 'income') && totalExpense > 0 && (
+                {(typeFilter !== 'income') && hasExpenses && (
                   <tr>
                     <td className="px-4 py-2.5">
                       <TrendingDown className="h-4 w-4 text-expense/60" />
@@ -636,17 +640,19 @@ export function PropertyDetail() {
                       Total expenses ({filtered.filter(t => t.type === 'expense').length})
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-expense">
-                      −{formatAmount(totalExpense, currency)}
+                      {Object.entries(expenseByCur).map(([cur, sum]) => (
+                        <div key={cur}>−{formatAmount(sum, cur)}</div>
+                      ))}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-expense/70">
-                      {hasMultiCurrency || ratesLoading
-                        ? ratesLoading ? <span className="animate-pulse opacity-40">…</span> : `−${formatAmount(baseExpense, defaultCurrency)}`
-                        : ''}
+                      {ratesLoading
+                        ? <span className="animate-pulse opacity-40">…</span>
+                        : `−${formatAmount(baseExpense, defaultCurrency)}`}
                     </td>
                     <td colSpan={3} />
                   </tr>
                 )}
-                {(typeFilter !== 'expense') && totalIncome > 0 && (
+                {(typeFilter !== 'expense') && hasIncomes && (
                   <tr>
                     <td className="px-4 py-2.5">
                       <TrendingUp className="h-4 w-4 text-income/60" />
@@ -655,12 +661,14 @@ export function PropertyDetail() {
                       Total income ({filtered.filter(t => t.type === 'income').length})
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-income">
-                      +{formatAmount(totalIncome, currency)}
+                      {Object.entries(incomeByCur).map(([cur, sum]) => (
+                        <div key={cur}>+{formatAmount(sum, cur)}</div>
+                      ))}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-semibold text-income/70">
-                      {hasMultiCurrency || ratesLoading
-                        ? ratesLoading ? <span className="animate-pulse opacity-40">…</span> : `+${formatAmount(baseIncome, defaultCurrency)}`
-                        : ''}
+                      {ratesLoading
+                        ? <span className="animate-pulse opacity-40">…</span>
+                        : `+${formatAmount(baseIncome, defaultCurrency)}`}
                     </td>
                     <td colSpan={3} />
                   </tr>
