@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Building2, Pencil } from 'lucide-react'
+import { Plus, Building2, Pencil, Settings2 } from 'lucide-react'
 import { propertiesApi } from '@/api/properties'
 import { useSettings } from '@/contexts/SettingsContext'
 import { Button } from '@/components/ui/button'
@@ -93,7 +93,11 @@ export function Properties() {
                 </tr>
               ) : (
                 data.map(p => (
-                  <tr key={p.id} className="border-t hover:bg-muted/20 transition-colors">
+                  <tr
+                    key={p.id}
+                    className="border-t hover:bg-muted/20 transition-colors cursor-pointer"
+                    onClick={() => navigate(`/properties/${p.id}`)}
+                  >
                     <td className="px-4 py-3 font-medium">{p.name}</td>
                     <td className="px-4 py-3 text-muted-foreground">{p.address || '—'}</td>
                     <td className="px-4 py-3 text-muted-foreground">{formatDate(p.purchase_date)}</td>
@@ -107,8 +111,8 @@ export function Properties() {
                     </td>
                     <td className="px-4 py-3">
                       <Button variant="ghost" size="icon" className="h-7 w-7"
-                        onClick={() => navigate(`/properties/${p.id}`)}>
-                        <Pencil className="h-3.5 w-3.5" />
+                        onClick={e => { e.stopPropagation(); navigate(`/properties/${p.id}/edit`) }}>
+                        <Settings2 className="h-3.5 w-3.5" />
                       </Button>
                     </td>
                   </tr>

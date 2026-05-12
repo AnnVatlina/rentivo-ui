@@ -59,6 +59,7 @@ export default function App() {
                 <Route path="properties" element={<Properties />} />
                 <Route path="properties/new" element={<PropertyForm />} />
                 <Route path="properties/:id" element={<PropertyDetail />} />
+                <Route path="properties/:id/edit" element={<PropertyForm />} />
                 <Route path="analytics" element={<Analytics />} />
                 <Route path="import-export" element={<ImportExport />} />
                 <Route path="settings" element={<SettingsPage />} />

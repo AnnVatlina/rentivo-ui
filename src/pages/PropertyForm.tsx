@@ -1,12 +1,13 @@
-import { useNavigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Trash2 } from 'lucide-react'
 import { propertiesApi } from '@/api/properties'
-import type { PropertyCreate } from '@/api/types'
+import type { PropertyCreate, PropertyUpdate } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -30,13 +31,22 @@ type FormData = z.infer<typeof schema>
 
 const FIELD = 'flex flex-col gap-1.5'
 const ERR = 'text-xs text-destructive'
+const SEL = 'h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
 
 export function PropertyForm() {
   const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>()
+  const isEdit = !!id
   const queryClient = useQueryClient()
   const { settings } = useSettings()
 
-  const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<FormData>({
+  const { data: property } = useQuery({
+    queryKey: ['property', id],
+    queryFn: () => propertiesApi.get(id!),
+    enabled: isEdit,
+  })
+
+  const { register, handleSubmit, control, reset, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
     defaultValues: {
       currency: settings?.default_currency ?? 'USD',
@@ -44,20 +54,57 @@ export function PropertyForm() {
     },
   })
 
+  useEffect(() => {
+    if (property) {
+      reset({
+        name:           property.name,
+        address:        property.address ?? '',
+        purchase_date:  property.purchase_date,
+        purchase_price: property.purchase_price,
+        currency:       property.currency,
+        status:         property.status,
+        sale_date:      property.sale_date ?? '',
+        sale_price:     property.sale_price ?? '',
+        sale_notes:     property.sale_notes ?? '',
+      })
+    }
+  }, [property, reset])
+
   const status = useWatch({ control, name: 'status' })
 
   const createMutation = useMutation({
     mutationFn: (p: PropertyCreate) => propertiesApi.create(p),
-    onSuccess: (property) => {
+    onSuccess: (prop) => {
       queryClient.invalidateQueries({ queryKey: ['properties'] })
       toast.success('Property created')
-      navigate(`/properties/${property.id}`)
+      navigate(`/properties/${prop.id}`)
     },
     onError: () => toast.error('Failed to create property'),
   })
 
+  const updateMutation = useMutation({
+    mutationFn: (p: PropertyUpdate) => propertiesApi.update(id!, p),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['properties'] })
+      queryClient.invalidateQueries({ queryKey: ['property', id] })
+      toast.success('Property updated')
+      navigate(`/properties/${id}`)
+    },
+    onError: () => toast.error('Failed to update property'),
+  })
+
+  const deleteMutation = useMutation({
+    mutationFn: () => propertiesApi.remove(id!),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['properties'] })
+      toast.success('Property deleted')
+      navigate('/properties')
+    },
+    onError: () => toast.error('Failed to delete property'),
+  })
+
   const onSubmit = (data: FormData) => {
-    const payload: PropertyCreate = {
+    const payload = {
       name:           data.name,
       address:        data.address || undefined,
       purchase_date:  data.purchase_date,
@@ -68,16 +115,22 @@ export function PropertyForm() {
       sale_price:     data.status === 'sold' ? data.sale_price || undefined : undefined,
       sale_notes:     data.status === 'sold' ? data.sale_notes || undefined : undefined,
     }
-    createMutation.mutate(payload)
+    if (isEdit) {
+      updateMutation.mutate(payload)
+    } else {
+      createMutation.mutate(payload as PropertyCreate)
+    }
   }
 
   return (
     <div className="max-w-xl space-y-6">
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/properties')} className="h-8 w-8">
+        <Button variant="ghost" size="icon"
+          onClick={() => navigate(isEdit ? `/properties/${id}` : '/properties')}
+          className="h-8 w-8">
           <ArrowLeft className="h-4 w-4" />
         </Button>
-        <h2 className="text-2xl font-bold">New property</h2>
+        <h2 className="text-2xl font-bold">{isEdit ? 'Edit property' : 'New property'}</h2>
       </div>
 
       <Card>
@@ -107,7 +160,7 @@ export function PropertyForm() {
               </div>
               <div className={FIELD}>
                 <Label htmlFor="currency">Currency</Label>
-                <select id="currency" className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" {...register('currency')}>
+                <select id="currency" className={SEL} {...register('currency')}>
                   {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
@@ -121,7 +174,7 @@ export function PropertyForm() {
               </div>
               <div className={FIELD}>
                 <Label htmlFor="status">Status</Label>
-                <select id="status" className="h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring" {...register('status')}>
+                <select id="status" className={SEL} {...register('status')}>
                   <option value="active">Active</option>
                   <option value="sold">Sold</option>
                 </select>
@@ -148,10 +201,25 @@ export function PropertyForm() {
               </div>
             )}
 
-            <div className="pt-2">
+            <div className="flex items-center justify-between pt-2">
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Creating…' : 'Create property'}
+                {isSubmitting ? (isEdit ? 'Saving…' : 'Creating…') : (isEdit ? 'Save changes' : 'Create property')}
               </Button>
+              {isEdit && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => {
+                    if (confirm(`Delete "${property?.name}"? This will also delete all transactions.`))
+                      deleteMutation.mutate()
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Delete property
+                </Button>
+              )}
             </div>
           </form>
         </CardContent>

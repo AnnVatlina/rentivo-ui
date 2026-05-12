@@ -1,14 +1,13 @@
-import { useState, useEffect, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { toast } from 'sonner'
+import { ArrowLeft, Pencil, Plus, Trash2, TrendingUp, TrendingDown, X } from 'lucide-react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
-import { ArrowLeft, Trash2, Plus, Pencil, TrendingUp, TrendingDown, X } from 'lucide-react'
 import { propertiesApi } from '@/api/properties'
 import type {
-  PropertyUpdate,
   PropertyTransactionOut,
   PropertyTransactionCreate,
   TransactionType,
@@ -19,28 +18,21 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Pagination, paginate } from '@/components/ui/pagination'
 import { CURRENCIES } from '@/lib/constants'
 import { formatAmount, formatDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-// ── Property edit form ────────────────────────────────────────────────────────
-
-const propSchema = z.object({
-  name:           z.string().min(1, 'Required'),
-  address:        z.string().optional(),
-  purchase_date:  z.string().min(1, 'Required'),
-  purchase_price: z.string().min(1, 'Required'),
-  currency:       z.string().min(1),
-  status:         z.enum(['active', 'sold']),
-  sale_date:      z.string().optional(),
-  sale_price:     z.string().optional(),
-  sale_notes:     z.string().optional(),
-})
-type PropForm = z.infer<typeof propSchema>
+const PER_PAGE = 20
 
 const SEL = 'h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring'
 const FIELD = 'flex flex-col gap-1.5'
 const ERR = 'text-xs text-destructive'
+
+const CYCLE_LABELS: Record<string, string> = {
+  one_time: 'One-time', monthly: 'Monthly', weekly: 'Weekly',
+  quarterly: 'Quarterly', yearly: 'Yearly',
+}
 
 // ── Transaction form ──────────────────────────────────────────────────────────
 
@@ -56,11 +48,6 @@ const txSchema = z.object({
   end_date:         z.string().optional(),
 })
 type TxForm = z.infer<typeof txSchema>
-
-const CYCLE_LABELS: Record<string, string> = {
-  one_time: 'One-time', monthly: 'Monthly', weekly: 'Weekly',
-  quarterly: 'Quarterly', yearly: 'Yearly',
-}
 
 function TransactionForm({
   propCurrency,
@@ -88,9 +75,9 @@ function TransactionForm({
       start_date:       initial.start_date ?? '',
       end_date:         initial.end_date ?? '',
     } : {
-      type: 'income',
+      type: 'expense',
       currency: propCurrency,
-      billing_cycle: 'monthly',
+      billing_cycle: 'one_time',
     },
   })
 
@@ -103,20 +90,27 @@ function TransactionForm({
         <div className={FIELD}>
           <Label>Type</Label>
           <select className={SEL} {...register('type')}>
-            <option value="income">Income</option>
             <option value="expense">Expense</option>
+            <option value="income">Income</option>
           </select>
         </div>
         <div className={FIELD}>
           <Label>Category *</Label>
-          <Input placeholder="Rent, renovation…" {...register('category')} />
+          <select className={SEL} {...register('category')}>
+            <option value="utilities">Utilities</option>
+            <option value="maintenance">Maintenance</option>
+            <option value="mortgage">Mortgage</option>
+            <option value="tax">Tax</option>
+            <option value="rent">Rent</option>
+            <option value="other">Other</option>
+          </select>
           {errors.category && <p className={ERR}>{errors.category.message}</p>}
         </div>
       </div>
 
       <div className={FIELD}>
         <Label>Title *</Label>
-        <Input placeholder="Monthly rent" {...register('title')} />
+        <Input placeholder="Electricity, monthly rent…" {...register('title')} />
         {errors.title && <p className={ERR}>{errors.title.message}</p>}
       </div>
 
@@ -187,7 +181,7 @@ function TxRow({
           ? <TrendingUp className="h-4 w-4 text-income" />
           : <TrendingDown className="h-4 w-4 text-expense" />}
       </td>
-      <td className="px-4 py-3 text-muted-foreground text-xs">{tx.category}</td>
+      <td className="px-4 py-3 text-muted-foreground text-xs capitalize">{tx.category}</td>
       <td className="px-4 py-3 font-medium">{tx.title}</td>
       <td className="px-4 py-3 text-right font-mono font-medium">
         <span className={isIncome ? 'text-income' : 'text-expense'}>
@@ -223,42 +217,20 @@ export function PropertyDetail() {
   const queryClient = useQueryClient()
   const [editingTx, setEditingTx] = useState<PropertyTransactionOut | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
+  const [txSaving, setTxSaving] = useState(false)
+  const [page, setPage] = useState(1)
 
-  // Property + summary
   const { data: property, isLoading: loadingProp } = useQuery({
     queryKey: ['property', id],
     queryFn: () => propertiesApi.get(id!),
     enabled: !!id,
   })
 
-  // Transactions
   const { data: transactions = [], isLoading: loadingTx } = useQuery({
     queryKey: ['property', id, 'transactions'],
     queryFn: () => propertiesApi.listTransactions(id!),
     enabled: !!id,
   })
-
-  // Property edit form
-  const { register, handleSubmit, control, reset, formState: { errors, isSubmitting } } = useForm<PropForm>({
-    resolver: zodResolver(propSchema),
-  })
-  const status = useWatch({ control, name: 'status' })
-
-  useEffect(() => {
-    if (property) {
-      reset({
-        name:           property.name,
-        address:        property.address ?? '',
-        purchase_date:  property.purchase_date,
-        purchase_price: property.purchase_price,
-        currency:       property.currency,
-        status:         property.status,
-        sale_date:      property.sale_date ?? '',
-        sale_price:     property.sale_price ?? '',
-        sale_notes:     property.sale_notes ?? '',
-      })
-    }
-  }, [property, reset])
 
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: ['property', id] })
@@ -266,39 +238,6 @@ export function PropertyDetail() {
     queryClient.invalidateQueries({ queryKey: ['properties'] })
   }
 
-  // Update property
-  const updateMutation = useMutation({
-    mutationFn: (data: PropForm) => {
-      const payload: PropertyUpdate = {
-        name:           data.name,
-        address:        data.address || undefined,
-        purchase_date:  data.purchase_date,
-        purchase_price: data.purchase_price,
-        currency:       data.currency,
-        status:         data.status,
-        sale_date:      data.status === 'sold' ? data.sale_date || undefined : undefined,
-        sale_price:     data.status === 'sold' ? data.sale_price || undefined : undefined,
-        sale_notes:     data.status === 'sold' ? data.sale_notes || undefined : undefined,
-      }
-      return propertiesApi.update(id!, payload)
-    },
-    onSuccess: () => { invalidate(); toast.success('Property updated') },
-    onError: () => toast.error('Failed to update property'),
-  })
-
-  // Delete property
-  const deletePropMutation = useMutation({
-    mutationFn: () => propertiesApi.remove(id!),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['properties'] })
-      toast.success('Property deleted')
-      navigate('/properties')
-    },
-    onError: () => toast.error('Failed to delete property'),
-  })
-
-  // Add/Update transaction
-  const [txSaving, setTxSaving] = useState(false)
   const saveTx = async (data: TxForm) => {
     setTxSaving(true)
     try {
@@ -323,6 +262,7 @@ export function PropertyDetail() {
       invalidate()
       setEditingTx(null)
       setShowAddForm(false)
+      setPage(1)
     } catch {
       toast.error('Failed to save transaction')
     } finally {
@@ -354,6 +294,18 @@ export function PropertyDetail() {
     .filter(t => t.type === 'income' && t.currency === propCurrency)
     .reduce((s, t) => s + parseFloat(t.amount), 0)
 
+  // Sort: newest first (one_time by transaction_date, recurring by start_date)
+  const sorted = [...transactions].sort((a, b) => {
+    const da = a.billing_cycle === 'one_time' ? a.transaction_date : a.start_date
+    const db = b.billing_cycle === 'one_time' ? b.transaction_date : b.start_date
+    if (!da && !db) return 0
+    if (!da) return 1
+    if (!db) return -1
+    return db.localeCompare(da)
+  })
+
+  const paged = paginate(sorted, page, PER_PAGE)
+
   const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
     <th className={cn(
       'px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide',
@@ -364,16 +316,22 @@ export function PropertyDetail() {
   return (
     <div className="max-w-3xl space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => navigate('/properties')} className="h-8 w-8">
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div>
-          <h2 className="text-2xl font-bold">{property.name}</h2>
-          {property.address && (
-            <p className="text-sm text-muted-foreground mt-0.5">{property.address}</p>
-          )}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={() => navigate('/properties')} className="h-8 w-8">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div>
+            <h2 className="text-2xl font-bold">{property.name}</h2>
+            {property.address && (
+              <p className="text-sm text-muted-foreground mt-0.5">{property.address}</p>
+            )}
+          </div>
         </div>
+        <Button variant="outline" size="sm" onClick={() => navigate(`/properties/${id}/edit`)}>
+          <Pencil className="h-3.5 w-3.5 mr-1.5" />
+          Edit property
+        </Button>
       </div>
 
       {/* Summary */}
@@ -422,101 +380,18 @@ export function PropertyDetail() {
         </div>
       )}
 
-      {/* Edit property */}
-      <Card>
-        <CardHeader className="pb-4">
-          <CardTitle className="text-base">Property details</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit(d => updateMutation.mutate(d))} className="space-y-4" noValidate>
-            <div className="grid grid-cols-2 gap-4">
-              <div className={`${FIELD} col-span-2`}>
-                <Label htmlFor="name">Name *</Label>
-                <Input id="name" {...register('name')} />
-                {errors.name && <p className={ERR}>{errors.name.message}</p>}
-              </div>
-              <div className={`${FIELD} col-span-2`}>
-                <Label htmlFor="address">Address</Label>
-                <Input id="address" {...register('address')} />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className={`${FIELD} col-span-2`}>
-                <Label htmlFor="purchase_price">Purchase price *</Label>
-                <Input id="purchase_price" type="number" step="0.01" {...register('purchase_price')} />
-              </div>
-              <div className={FIELD}>
-                <Label htmlFor="currency">Currency</Label>
-                <select id="currency" className={SEL} {...register('currency')}>
-                  {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className={FIELD}>
-                <Label htmlFor="purchase_date">Purchase date *</Label>
-                <Input id="purchase_date" type="date" {...register('purchase_date')} />
-              </div>
-              <div className={FIELD}>
-                <Label htmlFor="status">Status</Label>
-                <select id="status" className={SEL} {...register('status')}>
-                  <option value="active">Active</option>
-                  <option value="sold">Sold</option>
-                </select>
-              </div>
-            </div>
-
-            {status === 'sold' && (
-              <div className="space-y-4 pt-2 border-t">
-                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Sale details</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className={FIELD}>
-                    <Label htmlFor="sale_date">Sale date</Label>
-                    <Input id="sale_date" type="date" {...register('sale_date')} />
-                  </div>
-                  <div className={FIELD}>
-                    <Label htmlFor="sale_price">Sale price</Label>
-                    <Input id="sale_price" type="number" step="0.01" {...register('sale_price')} />
-                  </div>
-                </div>
-                <div className={FIELD}>
-                  <Label htmlFor="sale_notes">Notes</Label>
-                  <Input id="sale_notes" {...register('sale_notes')} />
-                </div>
-              </div>
-            )}
-
-            <div className="flex items-center justify-between pt-2">
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Saving…' : 'Save changes'}
-              </Button>
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                disabled={deletePropMutation.isPending}
-                onClick={() => {
-                  if (confirm(`Delete "${property.name}"? This will also delete all transactions.`))
-                    deletePropMutation.mutate()
-                }}
-              >
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete property
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
-
       {/* Transactions */}
       <Card>
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">Transactions</CardTitle>
+            <CardTitle className="text-base">
+              Transactions
+              {transactions.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-muted-foreground">({transactions.length})</span>
+              )}
+            </CardTitle>
             {!showAddForm && !editingTx && (
-              <Button size="sm" variant="outline" onClick={() => setShowAddForm(true)}>
+              <Button size="sm" variant="outline" onClick={() => { setShowAddForm(true); setPage(1) }}>
                 <Plus className="h-4 w-4 mr-1.5" />
                 Add
               </Button>
@@ -530,7 +405,6 @@ export function PropertyDetail() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* Add form */}
           {showAddForm && !editingTx && (
             <TransactionForm
               propCurrency={property.currency}
@@ -540,7 +414,6 @@ export function PropertyDetail() {
             />
           )}
 
-          {/* Edit form */}
           {editingTx && (
             <TransactionForm
               propCurrency={property.currency}
@@ -551,7 +424,6 @@ export function PropertyDetail() {
             />
           )}
 
-          {/* Table */}
           {loadingTx ? (
             <p className="text-sm text-muted-foreground animate-pulse py-4 text-center">Loading…</p>
           ) : transactions.length === 0 ? (
@@ -576,7 +448,7 @@ export function PropertyDetail() {
                   </tr>
                 </thead>
                 <tbody>
-                  {transactions.map(tx => (
+                  {paged.map(tx => (
                     <TxRow
                       key={tx.id}
                       tx={tx}
@@ -586,6 +458,9 @@ export function PropertyDetail() {
                   ))}
                 </tbody>
               </table>
+              <div className="px-6">
+                <Pagination total={sorted.length} page={page} perPage={PER_PAGE} onChange={setPage} />
+              </div>
             </div>
           )}
         </CardContent>
