@@ -1,6 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Plus, Building2, Pencil, Settings2 } from 'lucide-react'
+import { Plus, Building2, Settings2 } from 'lucide-react'
 import { propertiesApi } from '@/api/properties'
 import { useSettings } from '@/contexts/SettingsContext'
 import { Button } from '@/components/ui/button'
