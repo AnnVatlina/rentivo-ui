@@ -16,7 +16,7 @@ import type {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Pagination, paginate } from '@/components/ui/pagination'
 import { CURRENCIES } from '@/lib/constants'
@@ -33,6 +33,12 @@ const CYCLE_LABELS: Record<string, string> = {
   one_time: 'One-time', monthly: 'Monthly', weekly: 'Weekly',
   quarterly: 'Quarterly', yearly: 'Yearly',
 }
+
+const CATEGORIES = ['utilities', 'maintenance', 'mortgage', 'tax', 'rent', 'other'] as const
+type Category = typeof CATEGORIES[number]
+
+type TypeFilter = 'all' | 'income' | 'expense'
+type CatFilter = 'all' | Category
 
 // ── Transaction form ──────────────────────────────────────────────────────────
 
@@ -86,7 +92,7 @@ function TransactionForm({
 
   return (
     <form onSubmit={handleSubmit(onSave)} className="space-y-3 p-4 bg-muted/20 rounded-lg border" noValidate>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className={FIELD}>
           <Label>Type</Label>
           <select className={SEL} {...register('type')}>
@@ -97,38 +103,10 @@ function TransactionForm({
         <div className={FIELD}>
           <Label>Category *</Label>
           <select className={SEL} {...register('category')}>
-            <option value="utilities">Utilities</option>
-            <option value="maintenance">Maintenance</option>
-            <option value="mortgage">Mortgage</option>
-            <option value="tax">Tax</option>
-            <option value="rent">Rent</option>
-            <option value="other">Other</option>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
           </select>
           {errors.category && <p className={ERR}>{errors.category.message}</p>}
         </div>
-      </div>
-
-      <div className={FIELD}>
-        <Label>Title *</Label>
-        <Input placeholder="Electricity, monthly rent…" {...register('title')} />
-        {errors.title && <p className={ERR}>{errors.title.message}</p>}
-      </div>
-
-      <div className="grid grid-cols-3 gap-3">
-        <div className={`${FIELD} col-span-2`}>
-          <Label>Amount *</Label>
-          <Input type="number" step="0.01" min="0" {...register('amount')} />
-          {errors.amount && <p className={ERR}>{errors.amount.message}</p>}
-        </div>
-        <div className={FIELD}>
-          <Label>Currency</Label>
-          <select className={SEL} {...register('currency')}>
-            {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
         <div className={FIELD}>
           <Label>Billing cycle</Label>
           <select className={SEL} {...register('billing_cycle')}>
@@ -141,8 +119,27 @@ function TransactionForm({
         </div>
       </div>
 
-      {!isOneTime && (
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className={`${FIELD} col-span-2`}>
+          <Label>Title *</Label>
+          <Input placeholder="Electricity, monthly rent…" {...register('title')} />
+          {errors.title && <p className={ERR}>{errors.title.message}</p>}
+        </div>
         <div className={FIELD}>
+          <Label>Amount *</Label>
+          <Input type="number" step="0.01" min="0" {...register('amount')} />
+          {errors.amount && <p className={ERR}>{errors.amount.message}</p>}
+        </div>
+        <div className={FIELD}>
+          <Label>Currency</Label>
+          <select className={SEL} {...register('currency')}>
+            {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+      </div>
+
+      {!isOneTime && (
+        <div className={`${FIELD} max-w-xs`}>
           <Label>End date <span className="text-muted-foreground font-normal">(optional)</span></Label>
           <Input type="date" {...register('end_date')} />
         </div>
@@ -219,6 +216,8 @@ export function PropertyDetail() {
   const [showAddForm, setShowAddForm] = useState(false)
   const [txSaving, setTxSaving] = useState(false)
   const [page, setPage] = useState(1)
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
+  const [catFilter, setCatFilter] = useState<CatFilter>('all')
 
   const { data: property, isLoading: loadingProp } = useQuery({
     queryKey: ['property', id],
@@ -281,6 +280,8 @@ export function PropertyDetail() {
     }
   }
 
+  const resetFilters = () => { setTypeFilter('all'); setCatFilter('all'); setPage(1) }
+
   if (loadingProp) {
     return <p className="text-sm text-muted-foreground animate-pulse py-8">Loading…</p>
   }
@@ -288,13 +289,18 @@ export function PropertyDetail() {
     return <p className="text-sm text-destructive py-8">Property not found</p>
   }
 
+  const currency = property.currency
   const summary = property.summary
-  const propCurrency = property.currency
+
+  // Totals
+  const expenseTotal = transactions
+    .filter(t => t.type === 'expense' && t.currency === currency)
+    .reduce((s, t) => s + parseFloat(t.amount), 0)
   const incomeTotal = transactions
-    .filter(t => t.type === 'income' && t.currency === propCurrency)
+    .filter(t => t.type === 'income' && t.currency === currency)
     .reduce((s, t) => s + parseFloat(t.amount), 0)
 
-  // Sort: newest first (one_time by transaction_date, recurring by start_date)
+  // Sort: newest first
   const sorted = [...transactions].sort((a, b) => {
     const da = a.billing_cycle === 'one_time' ? a.transaction_date : a.start_date
     const db = b.billing_cycle === 'one_time' ? b.transaction_date : b.start_date
@@ -304,17 +310,30 @@ export function PropertyDetail() {
     return db.localeCompare(da)
   })
 
-  const paged = paginate(sorted, page, PER_PAGE)
+  // Filter
+  const filtered = sorted.filter(t => {
+    if (typeFilter !== 'all' && t.type !== typeFilter) return false
+    if (catFilter !== 'all' && t.category !== catFilter) return false
+    return true
+  })
+
+  const paged = paginate(filtered, page, PER_PAGE)
+
+  // Category counts for filter chips
+  const catCounts = CATEGORIES.reduce((acc, c) => {
+    acc[c] = transactions.filter(t => t.category === c && (typeFilter === 'all' || t.type === typeFilter)).length
+    return acc
+  }, {} as Record<string, number>)
 
   const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
     <th className={cn(
-      'px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide',
+      'px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap',
       right ? 'text-right' : 'text-left',
     )}>{children}</th>
   )
 
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -334,62 +353,133 @@ export function PropertyDetail() {
         </Button>
       </div>
 
-      {/* Summary */}
-      {summary && (
-        <div className="grid grid-cols-3 gap-4">
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Total invested</p>
-              <p className="text-xl font-bold font-mono mt-1">
-                {formatAmount(summary.total_invested, property.currency)}
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Total invested</p>
+            <p className="text-xl font-bold font-mono mt-1">
+              {summary ? formatAmount(summary.total_invested, currency) : '—'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">purchase + one-time expenses</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Expenses</p>
+            <p className="text-xl font-bold font-mono mt-1 text-expense">
+              −{formatAmount(expenseTotal, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {transactions.filter(t => t.type === 'expense').length} transactions
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Income received</p>
+            <p className="text-xl font-bold font-mono mt-1 text-income">
+              +{formatAmount(incomeTotal, currency)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {transactions.filter(t => t.type === 'income').length} transactions
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
+              {property.status === 'sold' ? 'Profit' : 'Status'}
+            </p>
+            {property.status === 'sold' && summary?.profit != null ? (
+              <p className={cn(
+                'text-xl font-bold font-mono mt-1',
+                parseFloat(summary.profit) >= 0 ? 'text-income' : 'text-expense',
+              )}>
+                {parseFloat(summary.profit) >= 0 ? '+' : ''}{formatAmount(summary.profit, currency)}
               </p>
-              <p className="text-xs text-muted-foreground mt-0.5">purchase + one-time expenses</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">Income received</p>
-              <p className="text-xl font-bold font-mono mt-1 text-income">
-                +{formatAmount(incomeTotal, property.currency)}
-              </p>
-              <p className="text-xs text-muted-foreground mt-0.5">all income transactions</p>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="pt-5">
-              <p className="text-xs text-muted-foreground uppercase tracking-wide font-semibold">
-                {property.status === 'sold' ? 'Profit' : 'Status'}
-              </p>
-              {property.status === 'sold' && summary.profit !== null ? (
-                <p className={cn(
-                  'text-xl font-bold font-mono mt-1',
-                  parseFloat(summary.profit) >= 0 ? 'text-income' : 'text-expense',
-                )}>
-                  {parseFloat(summary.profit) >= 0 ? '+' : ''}{formatAmount(summary.profit, property.currency)}
-                </p>
-              ) : (
-                <div className="mt-1">
-                  <Badge variant="default">Active</Badge>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {property.status === 'sold' ? 'sale price − total invested' : 'not sold yet'}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
+            ) : (
+              <div className="mt-1">
+                <Badge variant="default">Active</Badge>
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {property.status === 'sold' ? 'sale price − total invested' : 'not sold yet'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Add form */}
+      {(showAddForm || editingTx) && (
+        <TransactionForm
+          propCurrency={currency}
+          initial={editingTx ?? undefined}
+          onSave={saveTx}
+          onCancel={() => { setShowAddForm(false); setEditingTx(null) }}
+          saving={txSaving}
+        />
       )}
 
-      {/* Transactions */}
-      <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-base">
-              Transactions
-              {transactions.length > 0 && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground">({transactions.length})</span>
+      {/* Transactions table */}
+      <div className="bg-card rounded-xl border overflow-x-auto">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-2 px-4 py-3 border-b">
+          {/* Type filter */}
+          <div className="flex gap-1 bg-muted/40 rounded-lg p-1">
+            {(['all', 'expense', 'income'] as TypeFilter[]).map(f => (
+              <button
+                key={f}
+                onClick={() => { setTypeFilter(f); setPage(1) }}
+                className={cn(
+                  'px-3 py-1 rounded text-xs font-medium transition-colors capitalize',
+                  typeFilter === f
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted',
+                )}
+              >
+                {f === 'all' ? `All (${transactions.length})` : f === 'expense'
+                  ? `Expenses (${transactions.filter(t => t.type === 'expense').length})`
+                  : `Income (${transactions.filter(t => t.type === 'income').length})`}
+              </button>
+            ))}
+          </div>
+
+          {/* Category filter */}
+          <div className="flex flex-wrap gap-1">
+            <button
+              onClick={() => { setCatFilter('all'); setPage(1) }}
+              className={cn(
+                'px-2.5 py-1 rounded-full text-xs font-medium border transition-colors',
+                catFilter === 'all'
+                  ? 'bg-foreground text-background border-foreground'
+                  : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground',
               )}
-            </CardTitle>
+            >
+              All categories
+            </button>
+            {CATEGORIES.filter(c => catCounts[c] > 0).map(c => (
+              <button
+                key={c}
+                onClick={() => { setCatFilter(c); setPage(1) }}
+                className={cn(
+                  'px-2.5 py-1 rounded-full text-xs font-medium border transition-colors capitalize',
+                  catFilter === c
+                    ? 'bg-foreground text-background border-foreground'
+                    : 'border-border text-muted-foreground hover:border-foreground hover:text-foreground',
+                )}
+              >
+                {c} ({catCounts[c]})
+              </button>
+            ))}
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            {(typeFilter !== 'all' || catFilter !== 'all') && (
+              <button onClick={resetFilters} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+                <X className="h-3 w-3" /> Reset
+              </button>
+            )}
             {!showAddForm && !editingTx && (
               <Button size="sm" variant="outline" onClick={() => { setShowAddForm(true); setPage(1) }}>
                 <Plus className="h-4 w-4 mr-1.5" />
@@ -403,68 +493,54 @@ export function PropertyDetail() {
               </Button>
             )}
           </div>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {showAddForm && !editingTx && (
-            <TransactionForm
-              propCurrency={property.currency}
-              onSave={saveTx}
-              onCancel={() => setShowAddForm(false)}
-              saving={txSaving}
-            />
-          )}
+        </div>
 
-          {editingTx && (
-            <TransactionForm
-              propCurrency={property.currency}
-              initial={editingTx}
-              onSave={saveTx}
-              onCancel={() => setEditingTx(null)}
-              saving={txSaving}
-            />
-          )}
-
-          {loadingTx ? (
-            <p className="text-sm text-muted-foreground animate-pulse py-4 text-center">Loading…</p>
-          ) : transactions.length === 0 ? (
-            <p className="text-sm text-muted-foreground py-8 text-center">
-              No transactions yet.{' '}
-              <button className="text-primary hover:underline" onClick={() => setShowAddForm(true)}>
-                Add the first one
-              </button>
-            </p>
-          ) : (
-            <div className="overflow-x-auto -mx-6">
-              <table className="w-full text-sm min-w-max">
-                <thead className="border-y bg-muted/30">
-                  <tr>
-                    <Th> </Th>
-                    <Th>Category</Th>
-                    <Th>Title</Th>
-                    <Th right>Amount</Th>
-                    <Th>Cycle</Th>
-                    <Th>Date</Th>
-                    <th className="px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {paged.map(tx => (
-                    <TxRow
-                      key={tx.id}
-                      tx={tx}
-                      onEdit={t => { setEditingTx(t); setShowAddForm(false) }}
-                      onDelete={deleteTx}
-                    />
-                  ))}
-                </tbody>
-              </table>
-              <div className="px-6">
-                <Pagination total={sorted.length} page={page} perPage={PER_PAGE} onChange={setPage} />
-              </div>
+        {/* Table */}
+        {loadingTx ? (
+          <p className="text-sm text-muted-foreground animate-pulse py-8 text-center">Loading…</p>
+        ) : transactions.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-16 text-center">
+            No transactions yet.{' '}
+            <button className="text-primary hover:underline" onClick={() => setShowAddForm(true)}>
+              Add the first one
+            </button>
+          </p>
+        ) : filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-12 text-center">
+            No transactions match the filter.{' '}
+            <button className="text-primary hover:underline" onClick={resetFilters}>Reset filters</button>
+          </p>
+        ) : (
+          <>
+            <table className="w-full text-sm min-w-max">
+              <thead className="bg-muted/30">
+                <tr>
+                  <Th> </Th>
+                  <Th>Category</Th>
+                  <Th>Title</Th>
+                  <Th right>Amount</Th>
+                  <Th>Cycle</Th>
+                  <Th>Date</Th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {paged.map(tx => (
+                  <TxRow
+                    key={tx.id}
+                    tx={tx}
+                    onEdit={t => { setEditingTx(t); setShowAddForm(false) }}
+                    onDelete={deleteTx}
+                  />
+                ))}
+              </tbody>
+            </table>
+            <div className="px-4 py-2">
+              <Pagination total={filtered.length} page={page} perPage={PER_PAGE} onChange={setPage} />
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </>
+        )}
+      </div>
     </div>
   )
 }
