@@ -21,7 +21,7 @@ const schema = z.object({
   category:      z.string().optional(),
   amount:        z.string().min(1, 'Required').refine(v => !isNaN(Number(v)) && Number(v) > 0, 'Must be positive'),
   currency:      z.string().min(1),
-  billing_cycle: z.enum(['weekly', 'monthly', 'quarterly', 'yearly', 'one_time']),
+  billing_cycle: z.enum(['weekly', 'monthly', 'quarterly', 'yearly', 'biennial', 'one_time']),
   start_date:    z.string().min(1, 'Required'),
   end_date:      z.string().optional(),
   is_active:     z.boolean(),
@@ -37,6 +37,7 @@ function monthlyCost(amount: string, cycle: string): number | null {
     case 'monthly':   return n
     case 'quarterly': return n / 3
     case 'yearly':    return n / 12
+    case 'biennial':  return n / 24
     case 'one_time':  return 0
     default:          return null
   }
@@ -184,6 +185,7 @@ export function SubscriptionForm() {
                 <option value="monthly">Monthly</option>
                 <option value="quarterly">Quarterly</option>
                 <option value="yearly">Yearly</option>
+                <option value="biennial">2 years</option>
                 <option value="one_time">One-time</option>
               </select>
             </div>

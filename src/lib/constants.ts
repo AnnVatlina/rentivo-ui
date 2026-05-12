@@ -6,6 +6,7 @@ export const BILLING_CYCLE_LABELS: Record<string, string> = {
   monthly: 'Monthly',
   quarterly: 'Quarterly',
   yearly: 'Yearly',
+  biennial: '2 years',
   one_time: 'One-time',
 }
 
