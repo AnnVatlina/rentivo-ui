@@ -88,8 +88,8 @@ export function Subscriptions() {
   }
 
   const totalMonthly = data
-    .filter(s => s.is_active)
-    .reduce((sum, s) => sum + parseFloat(s.monthly_cost), 0)
+    .filter(s => s.is_active && s.billing_cycle === 'monthly')
+    .reduce((sum, s) => sum + parseFloat(s.amount), 0)
 
   const dueThisMonth = data.filter(
     s => s.is_active && s.billing_cycle !== 'one_time' &&
