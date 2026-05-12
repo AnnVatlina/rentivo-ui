@@ -187,14 +187,16 @@ export type PropertyTransactionUpdate = Partial<PropertyTransactionCreate>
 
 export interface PropertyAnalyticsMonth {
   month: number
-  year: number
   income: string
   expenses: string
+  net: string
+  is_projected: boolean
 }
 
 export interface PropertyAnalytics {
   property_id: string
   year: number
+  currency: string
   months: PropertyAnalyticsMonth[]
 }
 

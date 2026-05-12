@@ -13,6 +13,7 @@ import {
 } from 'recharts'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { analyticsApi } from '@/api/analytics'
+import { propertiesApi } from '@/api/properties'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useTheme } from '@/contexts/ThemeContext'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -70,6 +71,7 @@ export function Analytics() {
 
   const [year, setYear] = useState(currentYear)
   const [currency, setCurrency] = useState(settings?.default_currency ?? 'USD')
+  const [selectedPropId, setSelectedPropId] = useState<string>('')
 
   useEffect(() => {
     if (settings?.default_currency) setCurrency(settings.default_currency)
@@ -84,6 +86,41 @@ export function Analytics() {
     queryKey: ['analytics', year, currency],
     queryFn: () => analyticsApi.get(year, currency),
   })
+
+  // Properties list for property chart
+  const { data: properties = [] } = useQuery({
+    queryKey: ['properties'],
+    queryFn: propertiesApi.list,
+    enabled: !!settings?.module_property,
+  })
+
+  // Auto-select first property
+  const effectivePropId = selectedPropId || properties[0]?.id || ''
+
+  const { data: propAnalytics, isLoading: propLoading } = useQuery({
+    queryKey: ['propertyAnalytics', effectivePropId, year],
+    queryFn: () => propertiesApi.getAnalytics(effectivePropId, year),
+    enabled: !!effectivePropId,
+  })
+
+  const propChartData = useMemo(() =>
+    MONTHS.map((name, i) => {
+      const m = propAnalytics?.months.find(m => m.month === i + 1)
+      return {
+        name,
+        income:   m ? Math.round(parseFloat(m.income)   * 100) / 100 : 0,
+        expenses: m ? Math.round(parseFloat(m.expenses) * 100) / 100 : 0,
+        projected: m?.is_projected ?? false,
+      }
+    }),
+    [propAnalytics],
+  )
+
+  const propCurrency = propAnalytics?.currency ?? ''
+  const propHasData = propChartData.some(d => d.income > 0 || d.expenses > 0)
+  const propActual = propChartData.filter(d => !d.projected)
+  const propTotalExpenses = propActual.reduce((s, d) => s + d.expenses, 0)
+  const propTotalIncome   = propActual.reduce((s, d) => s + d.income,   0)
 
   const chartData = useMemo<ChartRow[]>(() =>
     (data?.months ?? []).map(m => ({
@@ -292,6 +329,110 @@ export function Analytics() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Property transactions chart */}
+      {settings?.module_property && properties.length > 0 && (
+        <Card>
+          <CardHeader className="pb-2">
+            <CardTitle className="text-base flex items-center justify-between flex-wrap gap-3">
+              <span>Property expenses &amp; income · {year}{propCurrency ? ` · ${propCurrency}` : ''}</span>
+              <div className="flex items-center gap-3">
+                {/* Property selector */}
+                <select
+                  value={effectivePropId}
+                  onChange={e => setSelectedPropId(e.target.value)}
+                  className={selectCls}
+                >
+                  {properties.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <div className="flex items-center gap-4 text-xs font-normal text-muted-foreground">
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: expenseColor }} />
+                    Expenses
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: incomeColor }} />
+                    Income
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="h-2.5 w-2.5 rounded-sm border border-border opacity-40" />
+                    Projected
+                  </span>
+                </div>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {propLoading && (
+              <div className="h-72 flex items-center justify-center">
+                <p className="text-sm text-muted-foreground animate-pulse">Loading…</p>
+              </div>
+            )}
+            {!propLoading && !propHasData && (
+              <div className="h-72 flex items-center justify-center">
+                <p className="text-sm text-muted-foreground">No transactions for {year}</p>
+              </div>
+            )}
+            {!propLoading && propHasData && (
+              <>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={propChartData} margin={{ top: 4, right: 8, bottom: 0, left: 8 }} barCategoryGap="25%" barGap={3}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={gridColor} vertical={false} />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: mutedColor }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={yTickFormatter} tick={{ fontSize: 12, fill: mutedColor }} axisLine={false} tickLine={false} width={48} />
+                    <Tooltip
+                      content={<CustomTooltip currency={propCurrency} />}
+                      cursor={{ fill: gridColor, opacity: 0.4 }}
+                    />
+                    <Bar dataKey="expenses" radius={[3, 3, 0, 0]} maxBarSize={22}>
+                      {propChartData.map((entry, i) => (
+                        <Cell key={i} fill={expenseColor} fillOpacity={entry.projected ? 0.3 : 1} />
+                      ))}
+                    </Bar>
+                    <Bar dataKey="income" radius={[3, 3, 0, 0]} maxBarSize={22}>
+                      {propChartData.map((entry, i) => (
+                        <Cell key={i} fill={incomeColor} fillOpacity={entry.projected ? 0.3 : 1} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+
+                {/* Mini summary */}
+                <div className="flex items-center gap-6 mt-3 px-2 text-sm">
+                  {propTotalExpenses > 0 && (
+                    <span>
+                      <span className="text-muted-foreground text-xs uppercase tracking-wide font-semibold">Expenses </span>
+                      <span className="font-mono font-semibold text-expense">−{formatAmount(propTotalExpenses, propCurrency)}</span>
+                    </span>
+                  )}
+                  {propTotalIncome > 0 && (
+                    <span>
+                      <span className="text-muted-foreground text-xs uppercase tracking-wide font-semibold">Income </span>
+                      <span className="font-mono font-semibold text-income">+{formatAmount(propTotalIncome, propCurrency)}</span>
+                    </span>
+                  )}
+                  {(propTotalExpenses > 0 || propTotalIncome > 0) && (
+                    <span>
+                      <span className="text-muted-foreground text-xs uppercase tracking-wide font-semibold">Net </span>
+                      {(() => {
+                        const net = propTotalIncome - propTotalExpenses
+                        return (
+                          <span className={cn('font-mono font-semibold', net >= 0 ? 'text-income' : 'text-expense')}>
+                            {net >= 0 ? '+' : ''}{formatAmount(net, propCurrency)}
+                          </span>
+                        )
+                      })()}
+                    </span>
+                  )}
+                  <span className="text-xs text-muted-foreground ml-auto">actual months only</span>
+                </div>
+              </>
+            )}
+          </CardContent>
+        </Card>
       )}
     </div>
   )
