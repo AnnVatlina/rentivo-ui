@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Pencil, Plus, Trash2, TrendingUp, TrendingDown, X } from 'lucide-react'
+import { ArrowLeft, Pencil, Plus, Trash2, TrendingUp, TrendingDown, X, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -39,6 +39,15 @@ type Category = typeof CATEGORIES[number]
 
 type TypeFilter = 'all' | 'income' | 'expense'
 type CatFilter = 'all' | Category
+type SortKey = 'category' | 'title' | 'amount' | 'billing_cycle' | 'date'
+type SortDir = 'asc' | 'desc'
+
+function SortIcon({ col, active, dir }: { col: SortKey; active: SortKey; dir: SortDir }) {
+  if (col !== active) return <ArrowUpDown className="h-3 w-3 opacity-40" />
+  return dir === 'asc'
+    ? <ArrowUp className="h-3 w-3 text-primary" />
+    : <ArrowDown className="h-3 w-3 text-primary" />
+}
 
 // ── Transaction form ──────────────────────────────────────────────────────────
 
@@ -218,6 +227,14 @@ export function PropertyDetail() {
   const [page, setPage] = useState(1)
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all')
   const [catFilter, setCatFilter] = useState<CatFilter>('all')
+  const [sortKey, setSortKey] = useState<SortKey>('date')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
+
+  const handleSort = (key: SortKey) => {
+    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+    setPage(1)
+  }
 
   const { data: property, isLoading: loadingProp } = useQuery({
     queryKey: ['property', id],
@@ -300,14 +317,26 @@ export function PropertyDetail() {
     .filter(t => t.type === 'income' && t.currency === currency)
     .reduce((s, t) => s + parseFloat(t.amount), 0)
 
-  // Sort: newest first
+  // Sort
   const sorted = [...transactions].sort((a, b) => {
-    const da = a.billing_cycle === 'one_time' ? a.transaction_date : a.start_date
-    const db = b.billing_cycle === 'one_time' ? b.transaction_date : b.start_date
-    if (!da && !db) return 0
-    if (!da) return 1
-    if (!db) return -1
-    return db.localeCompare(da)
+    let va: string | number
+    let vb: string | number
+    if (sortKey === 'date') {
+      va = (a.billing_cycle === 'one_time' ? a.transaction_date : a.start_date) ?? ''
+      vb = (b.billing_cycle === 'one_time' ? b.transaction_date : b.start_date) ?? ''
+    } else if (sortKey === 'amount') {
+      va = parseFloat(a.amount)
+      vb = parseFloat(b.amount)
+    } else if (sortKey === 'billing_cycle') {
+      va = a.billing_cycle
+      vb = b.billing_cycle
+    } else {
+      va = a[sortKey] ?? ''
+      vb = b[sortKey] ?? ''
+    }
+    if (va < vb) return sortDir === 'asc' ? -1 : 1
+    if (va > vb) return sortDir === 'asc' ? 1 : -1
+    return 0
   })
 
   // Filter
@@ -325,11 +354,19 @@ export function PropertyDetail() {
     return acc
   }, {} as Record<string, number>)
 
-  const Th = ({ children, right }: { children: ReactNode; right?: boolean }) => (
-    <th className={cn(
-      'px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap',
-      right ? 'text-right' : 'text-left',
-    )}>{children}</th>
+  const Th = ({ children, col, right }: { children: ReactNode; col: SortKey; right?: boolean }) => (
+    <th
+      onClick={() => handleSort(col)}
+      className={cn(
+        'px-4 py-3 text-xs font-semibold text-muted-foreground uppercase tracking-wide whitespace-nowrap cursor-pointer select-none hover:text-foreground',
+        right ? 'text-right' : 'text-left',
+      )}
+    >
+      <div className={cn('flex items-center gap-1', right && 'justify-end')}>
+        {children}
+        <SortIcon col={col} active={sortKey} dir={sortDir} />
+      </div>
+    </th>
   )
 
   return (
@@ -515,12 +552,12 @@ export function PropertyDetail() {
             <table className="w-full text-sm min-w-max">
               <thead className="bg-muted/30">
                 <tr>
-                  <Th> </Th>
-                  <Th>Category</Th>
-                  <Th>Title</Th>
-                  <Th right>Amount</Th>
-                  <Th>Cycle</Th>
-                  <Th>Date</Th>
+                  <th className="px-4 py-3 w-8" />
+                  <Th col="category">Category</Th>
+                  <Th col="title">Title</Th>
+                  <Th col="amount" right>Amount</Th>
+                  <Th col="billing_cycle">Cycle</Th>
+                  <Th col="date">Date</Th>
                   <th className="px-4 py-3" />
                 </tr>
               </thead>
