@@ -6,8 +6,11 @@ import { depositsApi } from '@/api/deposits'
 import type { DepositOut } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Pagination, paginate } from '@/components/ui/pagination'
 import { formatAmount, formatDate, formatRate } from '@/lib/format'
 import { cn } from '@/lib/utils'
+
+const PER_PAGE = 10
 
 type SortKey = 'title' | 'amount' | 'annual_rate' | 'close_date' | 'days_elapsed' | 'income_to_date'
 type SortDir = 'asc' | 'desc'
@@ -57,6 +60,7 @@ export function Deposits() {
   const navigate = useNavigate()
   const [sortKey, setSortKey] = useState<SortKey>('title')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
+  const [page, setPage] = useState(1)
 
   const { data = [], isLoading, error } = useQuery({
     queryKey: ['deposits'],
@@ -70,7 +74,10 @@ export function Deposits() {
   const handleSort = (key: SortKey) => {
     if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir('asc') }
+    setPage(1)
   }
+
+  const paged = paginate(sorted, page, PER_PAGE)
 
   const Th = ({ children, col }: { children: ReactNode; col: SortKey }) => (
     <th
@@ -141,7 +148,7 @@ export function Deposits() {
                   </td>
                 </tr>
               ) : (
-                sorted.map(d => {
+                paged.map(d => {
                   const status = depositStatus(d)
                   const expired = status === 'expired'
                   const expiring = status === 'expiring'
@@ -253,6 +260,7 @@ export function Deposits() {
               )}
             </tbody>
           </table>
+          <Pagination total={sorted.length} page={page} perPage={PER_PAGE} onChange={setPage} />
         </div>
       )}
     </div>

@@ -6,9 +6,12 @@ import { subscriptionsApi } from '@/api/subscriptions'
 import type { SubscriptionOut } from '@/api/types'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { Pagination, paginate } from '@/components/ui/pagination'
 import { formatAmount, formatDate } from '@/lib/format'
 import { BILLING_CYCLE_LABELS } from '@/lib/constants'
 import { cn } from '@/lib/utils'
+
+const PER_PAGE = 10
 
 type Filter = 'all' | 'active' | 'one_time' | 'inactive'
 
@@ -53,6 +56,7 @@ function NextPayment({ sub }: { sub: SubscriptionOut }) {
 export function Subscriptions() {
   const navigate = useNavigate()
   const [filter, setFilter] = useState<Filter>('all')
+  const [page, setPage] = useState(1)
 
   const { data = [], isLoading, error } = useQuery({
     queryKey: ['subscriptions'],
@@ -60,6 +64,7 @@ export function Subscriptions() {
   })
 
   const filtered = applyFilter(data, filter)
+  const paged = paginate(filtered, page, PER_PAGE)
 
   const counts: Record<Filter, number> = {
     all:      data.length,
@@ -108,7 +113,7 @@ export function Subscriptions() {
           {TABS.map(tab => (
             <button
               key={tab.id}
-              onClick={() => setFilter(tab.id)}
+              onClick={() => { setFilter(tab.id); setPage(1) }}
               className={cn(
                 'px-3 py-1.5 rounded text-sm font-medium transition-colors',
                 filter === tab.id
@@ -171,7 +176,7 @@ export function Subscriptions() {
                   </td>
                 </tr>
               ) : (
-                filtered.map(s => (
+                paged.map(s => (
                   <tr
                     key={s.id}
                     className={cn(
@@ -244,6 +249,7 @@ export function Subscriptions() {
               )}
             </tbody>
           </table>
+          <Pagination total={filtered.length} page={page} perPage={PER_PAGE} onChange={setPage} />
         </div>
       )}
     </div>
