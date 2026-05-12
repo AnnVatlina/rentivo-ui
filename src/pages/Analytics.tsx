@@ -11,6 +11,7 @@ import {
   Cell,
   type TooltipProps,
 } from 'recharts'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { analyticsApi } from '@/api/analytics'
 import { useSettings } from '@/contexts/SettingsContext'
 import { useTheme } from '@/contexts/ThemeContext'
@@ -119,12 +120,29 @@ export function Analytics() {
           <h2 className="text-2xl font-bold">Analytics</h2>
           <p className="text-sm text-muted-foreground mt-0.5">Income vs expenses by month</p>
         </div>
-        <div className="flex gap-2">
-          <select value={year} onChange={e => setYear(+e.target.value)} className={selectCls}>
-            {[currentYear - 1, currentYear, currentYear + 1].map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+        <div className="flex items-center gap-3">
+          {/* Year stepper */}
+          <div className="flex items-center gap-1 bg-card border rounded-lg h-9 px-1">
+            <button
+              onClick={() => setYear(y => y - 1)}
+              className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Previous year"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="w-12 text-center text-sm font-semibold tabular-nums select-none">
+              {year}
+            </span>
+            <button
+              onClick={() => setYear(y => y + 1)}
+              className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+              aria-label="Next year"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+
+          {/* Currency selector */}
           <select value={currency} onChange={e => setCurrency(e.target.value)} className={selectCls}>
             {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
